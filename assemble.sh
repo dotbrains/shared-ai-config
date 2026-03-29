@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# ─────────────────────────────────────────────────────────────
+# assemble.sh — Compose final agent/skill files from shared
+# bodies and tool-specific frontmatter.
+#
+# Usage:
+#   ./shared/assemble.sh <tool>          # Assemble files
+#   ./shared/assemble.sh <tool> --check  # Verify files are up-to-date
+#
+# Where <tool> is "opencode" or "claude".
+# Run from the tool repo root (where shared/ is a submodule).
+# ─────────────────────────────────────────────────────────────
+
+TOOL="${1:-}"
+CHECK="${2:-}"
+SHARED_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -z "$TOOL" ]]; then
+    echo "Usage: ./shared/assemble.sh <opencode|claude> [--check]"
+    exit 1
+fi
+
+if [[ "$TOOL" != "opencode" && "$TOOL" != "claude" ]]; then
+    echo "Error: tool must be 'opencode' or 'claude', got '$TOOL'"
+    exit 1
+fi
+
+REPO_ROOT="$(pwd)"
+FRONTMATTER_DIR="$REPO_ROOT/frontmatter"
+HEADER="<!-- DO NOT EDIT — assembled from shared/ and frontmatter/ by assemble.sh -->"
+
+errors=0
+
+assemble_file() {
+    local frontmatter="$1"
+    local body="$2"
+    local output="$3"
+
+    local assembled
+    assembled="$HEADER
+---
+$(cat "$frontmatter")
+---
+$(cat "$body")"
+
+    if [[ "$CHECK" == "--check" ]]; then
+        if [[ ! -f "$output" ]]; then
+            echo "MISSING: $output"
+            ((errors++))
+            return
+        fi
+        if ! diff -q <(echo "$assembled") "$output" > /dev/null 2>&1; then
+            echo "STALE:   $output"
+            ((errors++))
+        fi
+    else
+        mkdir -p "$(dirname "$output")"
+        echo "$assembled" > "$output"
+        echo "  ✅ $output"
+    fi
+}
+
+# ── Agents ──────────────────────────────────────────────────
+if [[ "$CHECK" != "--check" ]]; then
+    echo "🔧 Assembling $TOOL agents..."
+fi
+
+for frontmatter_file in "$FRONTMATTER_DIR"/agents/*.yml; do
+    [[ -f "$frontmatter_file" ]] || continue
+    name="$(basename "$frontmatter_file" .yml)"
+    body_file="$SHARED_DIR/agents/$name.md"
+
+    if [[ ! -f "$body_file" ]]; then
+        echo "Warning: No shared body for $name, skipping"
+        continue
+    fi
+
+    if [[ "$TOOL" == "opencode" ]]; then
+        output="$REPO_ROOT/agent/$name.md"
+    else
+        output="$REPO_ROOT/agents/$name.md"
+    fi
+
+    assemble_file "$frontmatter_file" "$body_file" "$output"
+done
+
+# ── Ship skill ──────────────────────────────────────────────
+if [[ "$CHECK" != "--check" ]]; then
+    echo ""
+    echo "🔧 Assembling $TOOL ship skill..."
+fi
+
+ship_frontmatter="$FRONTMATTER_DIR/skills/ship.yml"
+ship_body="$SHARED_DIR/skills/ship.md"
+ship_epilogue="$SHARED_DIR/skills/ship-opencode-epilogue.md"
+
+if [[ -f "$ship_frontmatter" && -f "$ship_body" ]]; then
+    # Build the full body
+    if [[ "$TOOL" == "opencode" && -f "$ship_epilogue" ]]; then
+        combined_body="$(cat "$ship_body")
+$(cat "$ship_epilogue")"
+    else
+        combined_body="$(cat "$ship_body")"
+    fi
+
+    ship_output="$REPO_ROOT/skills/ship/SKILL.md"
+
+    assembled="$HEADER
+---
+$(cat "$ship_frontmatter")
+---
+$combined_body"
+
+    if [[ "$CHECK" == "--check" ]]; then
+        if [[ ! -f "$ship_output" ]]; then
+            echo "MISSING: $ship_output"
+            ((errors++))
+        elif ! diff -q <(echo "$assembled") "$ship_output" > /dev/null 2>&1; then
+            echo "STALE:   $ship_output"
+            ((errors++))
+        fi
+    else
+        mkdir -p "$(dirname "$ship_output")"
+        echo "$assembled" > "$ship_output"
+        echo "  ✅ $ship_output"
+    fi
+fi
+
+# ── Summary ─────────────────────────────────────────────────
+echo ""
+if [[ "$CHECK" == "--check" ]]; then
+    if [[ $errors -gt 0 ]]; then
+        echo "❌ $errors file(s) are out of date. Run: ./shared/assemble.sh $TOOL"
+        exit 1
+    else
+        echo "✅ All assembled files are up to date."
+    fi
+else
+    echo "✅ Assembly complete for $TOOL."
+fi
