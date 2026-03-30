@@ -10,7 +10,7 @@ set -euo pipefail
 #   ./shared/assemble.sh <tool>          # Assemble files
 #   ./shared/assemble.sh <tool> --check  # Verify files are up-to-date
 #
-# Where <tool> is "opencode" or "claude".
+# Where <tool> is "opencode", "claude", or "codex".
 # Run from the tool repo root (where shared/ is a submodule).
 # ─────────────────────────────────────────────────────────────
 
@@ -19,12 +19,12 @@ CHECK="${2:-}"
 SHARED_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ -z "$TOOL" ]]; then
-    echo "Usage: ./shared/assemble.sh <opencode|claude> [--check]"
+    echo "Usage: ./shared/assemble.sh <opencode|claude|codex> [--check]"
     exit 1
 fi
 
-if [[ "$TOOL" != "opencode" && "$TOOL" != "claude" ]]; then
-    echo "Error: tool must be 'opencode' or 'claude', got '$TOOL'"
+if [[ "$TOOL" != "opencode" && "$TOOL" != "claude" && "$TOOL" != "codex" ]]; then
+    echo "Error: tool must be 'opencode', 'claude', or 'codex', got '$TOOL'"
     exit 1
 fi
 
@@ -63,28 +63,72 @@ $(cat "$body")"
     fi
 }
 
+assemble_codex_agent() {
+    local frontmatter="$1"
+    local body="$2"
+    local output="$3"
+
+    local assembled
+    assembled="# DO NOT EDIT — assembled from shared/ and frontmatter/ by assemble.sh
+
+$(cat "$frontmatter")
+developer_instructions = \"\"\"
+$(cat "$body")
+\"\"\""
+
+    if [[ "$CHECK" == "--check" ]]; then
+        if [[ ! -f "$output" ]]; then
+            echo "MISSING: $output"
+            ((errors++))
+            return
+        fi
+        if ! diff -q <(echo "$assembled") "$output" > /dev/null 2>&1; then
+            echo "STALE:   $output"
+            ((errors++))
+        fi
+    else
+        mkdir -p "$(dirname "$output")"
+        echo "$assembled" > "$output"
+        echo "  ✅ $output"
+    fi
+}
+
 # ── Agents ──────────────────────────────────────────────────
 if [[ "$CHECK" != "--check" ]]; then
     echo "🔧 Assembling $TOOL agents..."
 fi
 
-for frontmatter_file in "$FRONTMATTER_DIR"/agents/*.yml; do
+for frontmatter_file in "$FRONTMATTER_DIR"/agents/*; do
     [[ -f "$frontmatter_file" ]] || continue
-    name="$(basename "$frontmatter_file" .yml)"
-    body_file="$SHARED_DIR/agents/$name.md"
 
-    if [[ ! -f "$body_file" ]]; then
-        echo "Warning: No shared body for $name, skipping"
-        continue
-    fi
+    if [[ "$TOOL" == "codex" ]]; then
+        name="$(basename "$frontmatter_file" .toml)"
+        body_file="$SHARED_DIR/agents/$name.md"
 
-    if [[ "$TOOL" == "opencode" ]]; then
-        output="$REPO_ROOT/agent/$name.md"
+        if [[ ! -f "$body_file" ]]; then
+            echo "Warning: No shared body for $name, skipping"
+            continue
+        fi
+
+        output="$REPO_ROOT/agents/$name.toml"
+        assemble_codex_agent "$frontmatter_file" "$body_file" "$output"
     else
-        output="$REPO_ROOT/agents/$name.md"
-    fi
+        name="$(basename "$frontmatter_file" .yml)"
+        body_file="$SHARED_DIR/agents/$name.md"
 
-    assemble_file "$frontmatter_file" "$body_file" "$output"
+        if [[ ! -f "$body_file" ]]; then
+            echo "Warning: No shared body for $name, skipping"
+            continue
+        fi
+
+        if [[ "$TOOL" == "opencode" ]]; then
+            output="$REPO_ROOT/agent/$name.md"
+        else
+            output="$REPO_ROOT/agents/$name.md"
+        fi
+
+        assemble_file "$frontmatter_file" "$body_file" "$output"
+    fi
 done
 
 # ── Ship skill ──────────────────────────────────────────────
