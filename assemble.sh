@@ -40,10 +40,10 @@ assemble_file() {
     local output="$3"
 
     local assembled
-    assembled="$HEADER
----
+    assembled="---
 $(cat "$frontmatter")
 ---
+$HEADER
 $(cat "$body")"
 
     if [[ "$CHECK" == "--check" ]]; then
@@ -108,10 +108,10 @@ $(cat "$ship_epilogue")"
 
     ship_output="$REPO_ROOT/skills/ship/SKILL.md"
 
-    assembled="$HEADER
----
+    assembled="---
 $(cat "$ship_frontmatter")
 ---
+$HEADER
 $combined_body"
 
     if [[ "$CHECK" == "--check" ]]; then
