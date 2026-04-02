@@ -145,7 +145,7 @@ ship_epilogue="$SHARED_DIR/skills/ship-opencode-epilogue.md"
 if [[ "$TOOL" == "pi" ]]; then
     # Pi uses plain SKILL.md without YAML frontmatter
     if [[ -f "$ship_body" ]]; then
-        ship_output="$REPO_ROOT/skills/ship/SKILL.md"
+        ship_output="$REPO_ROOT/agent/skills/ship/SKILL.md"
         assembled="$HEADER
 $(cat "$ship_body")"
 
